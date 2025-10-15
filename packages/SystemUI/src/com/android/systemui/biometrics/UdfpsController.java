@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -39,6 +39,9 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Configuration;
 import android.database.ContentObserver;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.hardware.biometrics.BiometricFingerprintConstants;
 import android.hardware.biometrics.BiometricPrompt;
@@ -67,6 +70,8 @@ import android.util.Log;
 import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
+import android.view.Surface;
+import android.view.SurfaceControl;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityManager;
@@ -249,6 +254,9 @@ public class UdfpsController implements DozeReceiver, Dumpable {
     private boolean mSmartPixelsFlag;
     private boolean mSmartPixelsEnabled;
     private boolean mSmartPixelsOnPowerSave;
+
+    // Add field for HBM SurfaceControl
+    private SurfaceControl mHbmSurfaceControl;
 
     @VisibleForTesting
     public static final VibrationAttributes UDFPS_VIBRATION_ATTRIBUTES =
@@ -1239,6 +1247,8 @@ public class UdfpsController implements DozeReceiver, Dumpable {
             long gestureStart,
             boolean isAod) {
         mExecution.assertIsMainThread();
+        // Call createHbmSurfaceControl on finger down
+        createHbmSurfaceControl();
 
         if (mOverlay == null) {
             Log.w(TAG, "Null request in onFingerDown");
@@ -1322,6 +1332,10 @@ public class UdfpsController implements DozeReceiver, Dumpable {
             long gestureStart,
             boolean isAod) {
         mExecution.assertIsMainThread();
+
+        // Call destroyHbmSurfaceControl on finger up
+        destroyHbmSurfaceControl();
+
         mActivePointerId = MotionEvent.INVALID_POINTER_ID;
         mAcquiredReceived = false;
 
@@ -1363,6 +1377,57 @@ public class UdfpsController implements DozeReceiver, Dumpable {
         }
     }
 
+    // Add new methods to create and destroy the HBM SurfaceControl
+    /**
+     * Creates a buffered, named, hardware-composited SurfaceControl layer.
+     * This layer is invisible but its name is used as a trigger for the HwComposer.
+     */
+    private void createHbmSurfaceControl() {
+        if (mHbmSurfaceControl != null) {
+            return;
+        }
+
+        final Rect sensorBounds = mOverlayParams.getSensorBounds();
+        final int width = sensorBounds.width();
+        final int height = sensorBounds.height();
+
+        // Build the SurfaceControl
+        mHbmSurfaceControl = new SurfaceControl.Builder()
+                .setName("TranshitHBMController")
+                .setBufferSize(width, height)
+                .build();
+
+        // Create a Surface from the SurfaceControl to draw on.
+        // We post one transparent frame to give it a valid buffer.
+        final Surface surface = new Surface(mHbmSurfaceControl);
+        final Canvas canvas = surface.lockCanvas(null);
+        try {
+            canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        } finally {
+            surface.unlockCanvasAndPost(canvas);
+        }
+        surface.release();
+
+        // Apply properties to the layer in a single transaction
+        new SurfaceControl.Transaction()
+                .setPosition(mHbmSurfaceControl, sensorBounds.left, sensorBounds.top)
+                .setLayer(mHbmSurfaceControl, Integer.MAX_VALUE)
+                .setOpaque(mHbmSurfaceControl, false)
+                .show(mHbmSurfaceControl)
+                .apply();
+    }
+
+    /**
+     * Destroys the native SurfaceControl layer used for HBM.
+     */
+    private void destroyHbmSurfaceControl() {
+        if (mHbmSurfaceControl == null) {
+            return;
+        }
+        mHbmSurfaceControl.release();
+        mHbmSurfaceControl = null;
+    }
+
     /**
      * Callback for fingerUp and fingerDown events.
      */
@@ -1375,6 +1440,7 @@ public class UdfpsController implements DozeReceiver, Dumpable {
         /**
          * Called onFingerDown events.
          */
-        void onFingerDown();
+        void onFingerDown();    
     }
 }
+
