@@ -1377,49 +1377,26 @@ public class UdfpsController implements DozeReceiver, Dumpable {
         }
     }
 
-    // Add new methods to create and destroy the HBM SurfaceControl
-    /**
-     * Creates a buffered, named, hardware-composited SurfaceControl layer.
-     * This layer is invisible but its name is used as a trigger for the HwComposer.
-     */
     private void createHbmSurfaceControl() {
         if (mHbmSurfaceControl != null) {
             return;
         }
 
         final Rect sensorBounds = mOverlayParams.getSensorBounds();
-        final int width = sensorBounds.width();
-        final int height = sensorBounds.height();
 
-        // Build the SurfaceControl
         mHbmSurfaceControl = new SurfaceControl.Builder()
                 .setName("TranshitHBMController")
-                .setBufferSize(width, height)
+                .setContainerLayer()
                 .build();
 
-        // Create a Surface from the SurfaceControl to draw on.
-        // We post one transparent frame to give it a valid buffer.
-        final Surface surface = new Surface(mHbmSurfaceControl);
-        final Canvas canvas = surface.lockCanvas(null);
-        try {
-            canvas.drawColor(0, PorterDuff.Mode.CLEAR);
-        } finally {
-            surface.unlockCanvasAndPost(canvas);
-        }
-        surface.release();
-
-        // Apply properties to the layer in a single transaction
         new SurfaceControl.Transaction()
                 .setPosition(mHbmSurfaceControl, sensorBounds.left, sensorBounds.top)
                 .setLayer(mHbmSurfaceControl, Integer.MAX_VALUE)
-                .setOpaque(mHbmSurfaceControl, false)
+                .setOpaque(mHbmSurfaceControl, false) 
                 .show(mHbmSurfaceControl)
                 .apply();
     }
 
-    /**
-     * Destroys the native SurfaceControl layer used for HBM.
-     */
     private void destroyHbmSurfaceControl() {
         if (mHbmSurfaceControl == null) {
             return;
